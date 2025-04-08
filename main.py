@@ -4,7 +4,16 @@ import os
 import sys
 import logging
 
-# aiogram использует aiohttp, импортируем сессии с отключением SSL
+# Проверка поддержки ssl и безопасный импорт aiohttp
+try:
+    import ssl
+    ssl_context = ssl.create_default_context()
+    disable_ssl = False
+except ImportError:
+    ssl_context = None
+    disable_ssl = True
+    logging.warning("SSL-модуль не найден. Запуск бота без SSL.")
+
 import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
@@ -21,9 +30,9 @@ if not API_TOKEN or not CHAT_ID:
     logging.error("Переменные окружения BOT_TOKEN и CHAT_ID не заданы")
     sys.exit(1)
 
-# Создаем aiohttp-сессию с отключённым SSL
+# Создаем aiohttp-сессию с условием отключения SSL
 try:
-    connector = aiohttp.TCPConnector(ssl=False)
+    connector = aiohttp.TCPConnector(ssl=not disable_ssl)
     session = aiohttp.ClientSession(connector=connector)
 except Exception as e:
     logging.error(f"Ошибка создания aiohttp-сессии: {e}")
