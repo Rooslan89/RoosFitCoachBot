@@ -13,16 +13,33 @@ dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
 import json
+import os
+from aiogram import Bot, Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
+# Инициализация
+from dotenv import load_dotenv
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
 USER_DATA_FILE = "user_data.json"
 
-# Класс состояний
+# Клавиатуры
+mood_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+mood_kb.add("Отлично 💯", "Нормально 😊")
+mood_kb.add("Так себе 😕", "Плохо 😞")
+
+gender_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+gender_kb.add("Мужской", "Женский")
+
+# Состояния
 class RegisterState(StatesGroup):
     name = State()
     gender = State()
@@ -41,7 +58,7 @@ def save_user_data(data):
     with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# Старт бота
+# Старт
 @dp.message_handler(commands=['start'])
 async def start(message: types.Message):
     user_id = str(message.chat.id)
@@ -52,7 +69,8 @@ async def start(message: types.Message):
         await message.answer(
             f"Привет, {user['name']}! 👋\n"
             f"Пол: {user['gender']}, Рост: {user['height']} см, Вес: {user['weight']} кг\n\n"
-            f"Как ты себя сегодня чувствуешь, {user['name']}?", reply_markup=mood_kb
+            f"Как ты себя сегодня чувствуешь, {user['name']}?",
+            reply_markup=mood_kb
         )
     else:
         await message.answer("Привет! Я твой фитнес-бот RoosFitCoach 💪\nКак тебя зовут?")
@@ -69,19 +87,25 @@ async def process_name(message: types.Message, state: FSMContext):
 @dp.message_handler(state=RegisterState.gender)
 async def process_gender(message: types.Message, state: FSMContext):
     await state.update_data(gender=message.text)
-    await message.answer("Укажи свой рост (в см):", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("Укажи свой рост (в см):", reply_markup=ReplyKeyboardRemove())
     await RegisterState.height.set()
 
 # Рост
 @dp.message_handler(state=RegisterState.height)
 async def process_height(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Пожалуйста, введи рост цифрами, например: 180")
+        return
     await state.update_data(height=message.text)
     await message.answer("Укажи свой вес (в кг):")
     await RegisterState.weight.set()
 
-# Вес и сохранение
+# Вес и завершение
 @dp.message_handler(state=RegisterState.weight)
 async def process_weight(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Пожалуйста, введи вес цифрами, например: 75")
+        return
     await state.update_data(weight=message.text)
     data = await state.get_data()
     user_id = str(message.chat.id)
@@ -104,6 +128,8 @@ async def process_weight(message: types.Message, state: FSMContext):
         reply_markup=mood_kb
     )
     await state.finish()
+
+
 
 # Клавиатуры
 start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
