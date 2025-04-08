@@ -4,6 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
 import datetime
 import os
+import json
 
 API_TOKEN = os.getenv('BOT_TOKEN')  # Безопасно подтягиваем токен из переменной окружения
 CHAT_ID = os.getenv('CHAT_ID')      # Тоже самое для ID
@@ -12,86 +13,72 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
-import json
 
-USERS_FILE = "users.json"
+# Работа с JSON-файлом
+USER_DATA_FILE = "users.json"
 
 def load_users():
-    if not os.path.exists(USERS_FILE):
-        return {}
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if os.path.exists(USER_DATA_FILE):
+        with open(USER_DATA_FILE, 'r') as f:
+            return json.load(f)
+    return {}
 
-def save_user(user_id, data):
+def save_user(user_id, user_data):
     users = load_users()
-    users[str(user_id)] = data
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4, ensure_ascii=False)
+    users[str(user_id)] = user_data
+    with open(USER_DATA_FILE, 'w') as f:
+        json.dump(users, f, indent=2)
 
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+def user_exists(user_id):
+    users = load_users()
+    return str(user_id) in users
 
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-
-class RegisterState(StatesGroup):
-    name = State()
-    gender = State()
-    height = State()
-    weight = State()
+def get_user(user_id):
+    users = load_users()
+    return users.get(str(user_id), None)
 
 @dp.message_handler(commands=['start'])
-async def start(message: types.Message, state: FSMContext):
-    user_id = str(message.from_user.id)
-    users = load_users()
+async def start(message: types.Message):
+    user_id = message.from_user.id
 
-    if user_id in users:
-        user = users[user_id]
+    if user_exists(user_id):
+        user = get_user(user_id)
         await message.answer(
-            f"Привет, {user['name']}! Рад тебя снова видеть 💪\n"
-            f"Пол: {user['gender']}, Рост: {user['height']} см, Вес: {user['weight']} кг"
+            f"С возвращением, Roos! 💪\n\n"
+            f"Твои данные:\n"
+            f"Пол: {user['gender']}\n"
+            f"Рост: {user['height']} см\n"
+            f"Вес: {user['weight']} кг\n\n"
+            f"Готов к тренировке?",
+            reply_markup=start_kb
         )
-        await ask_mood(message)  # Переходим сразу к самочувствию
     else:
-        await message.answer("Привет! Я твой фитнес-бот RoosFitCoach 💪\nПеред началом тренировок давай познакомимся.")
-        await message.answer("Как тебя зовут?")
-        await RegisterState.name.set()
-
-@dp.message_handler(state=RegisterState.name)
-async def process_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Какой у тебя пол?", reply_markup=gender_kb)
-    await RegisterState.gender.set()
-
-@dp.message_handler(state=RegisterState.gender)
-async def process_gender(message: types.Message, state: FSMContext):
-    await state.update_data(gender=message.text)
-    await message.answer("Укажи свой рост (в см):", reply_markup=types.ReplyKeyboardRemove())
-    await RegisterState.height.set()
-
-@dp.message_handler(state=RegisterState.height)
-async def process_height(message: types.Message, state: FSMContext):
-    await state.update_data(height=message.text)
-    await message.answer("А теперь укажи свой вес (в кг):")
-    await RegisterState.weight.set()
-
+        await message.answer("Привет, Roos! Я твой фитнес-бот RoosFitCoach 💪\n\nПеред началом тренировок, давай немного познакомимся.")
+        await message.answer("Какой у тебя пол?", reply_markup=gender_kb)
+        await RegisterState.gender.set()
+4. 🧠 В process_weight — добавим сохранение:
+python
+Копировать
+Редактировать
 @dp.message_handler(state=RegisterState.weight)
 async def process_weight(message: types.Message, state: FSMContext):
+    await state.update_data(weight=message.text)
     data = await state.get_data()
-    user_id = str(message.from_user.id)
-    user_data = {
-        "name": data['name'],
+
+    # Сохраняем пользователя в файл
+    user_id = message.from_user.id
+    save_user(user_id, {
         "gender": data['gender'],
         "height": data['height'],
         "weight": data['weight']
-    }
-    save_user(user_id, user_data)
+    })
 
     await message.answer(
-        f"Спасибо, {data['name']}!\n"
-        f"Пол: {data['gender']}, Рост: {data['height']} см, Вес: {data['weight']} кг\n\n"
-        "Теперь давай оценим твоё самочувствие 💬",
+        f"Отлично, Roos!\n"
+        f"Пол: {data['gender']}\n"
+        f"Рост: {data['height']} см\n"
+        f"Вес: {data['weight']} кг\n\n"
+        "Теперь давай оценим твоё самочувствие перед тренировкой 💬",
         reply_markup=mood_kb
     )
     await state.finish()
