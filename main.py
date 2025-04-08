@@ -1,46 +1,14 @@
+from aiogram import Bot, Dispatcher, types, executor
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
 import datetime
 import os
-import sys
-import logging
 
-from dotenv import load_dotenv
-load_dotenv()
+API_TOKEN = os.getenv('BOT_TOKEN')  # Безопасно подтягиваем токен из переменной окружения
+CHAT_ID = os.getenv('CHAT_ID')      # Тоже самое для ID
 
-# Проверка поддержки ssl и безопасный импорт aiohttp
-try:
-    import ssl
-    ssl_context = ssl.create_default_context()
-    disable_ssl = False
-except ImportError:
-    ssl_context = None
-    disable_ssl = True
-    logging.warning("SSL-модуль не найден. Запуск бота без SSL.")
-
-import aiohttp
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-# Устанавливаем уровень логирования
-logging.basicConfig(level=logging.INFO)
-
-API_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-
-if not API_TOKEN or not CHAT_ID:
-    logging.error("Переменные окружения BOT_TOKEN и CHAT_ID не заданы")
-    sys.exit(1)
-
-# Создаем aiohttp-сессию с условием отключения SSL
-try:
-    connector = aiohttp.TCPConnector(ssl=not disable_ssl)
-    session = aiohttp.ClientSession(connector=connector)
-except Exception as e:
-    logging.error(f"Ошибка создания aiohttp-сессии: {e}")
-    sys.exit(1)
-
-bot = Bot(token=API_TOKEN, session=session)
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
@@ -57,25 +25,21 @@ training_kb.add("Всё понял, поехали! 🔥")
 
 # Напоминание
 async def send_reminder():
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text="Привет, Roos! Завтра тренировка 💪 Не забудь подготовиться! 🥗😴"
-    )
+    if CHAT_ID:
+        await bot.send_message(chat_id=CHAT_ID, text="Привет, Roos! Завтра тренировка 💪 Не забудь подготовиться! 🥗😴")
 
-# Обработка команд
+# Команда старт
 @dp.message_handler(commands=['start'])
-async def handle_start(message: types.Message):
-    await message.reply(
-        "Привет, Roos! Я твой фитнес-бот RoosFitCoach 💪 Готов начать тренировку?",
-        reply_markup=start_kb
-    )
+async def start(message: types.Message):
+    await message.reply("Привет, Roos! Я твой фитнес-бот RoosFitCoach 💪 Готов начать тренировку?", reply_markup=start_kb)
 
+# Обработка кнопки "Начать тренировку"
 @dp.message_handler(lambda message: message.text == "Начать тренировку")
-async def handle_start_training(message: types.Message):
+async def ask_mood(message: types.Message):
     await message.answer("Как ты себя сегодня чувствуешь, Roos?", reply_markup=mood_kb)
 
 @dp.message_handler(lambda message: message.text in ["Отлично 💯", "Нормально 😊", "Так себе 😕", "Плохо 😞"])
-async def handle_mood(message: types.Message):
+async def mood_response(message: types.Message):
     mood = message.text
     if mood == "Плохо 😞":
         await message.answer("Понял тебя, давай сегодня отдохнём. Завтра будет лучше! 🧘")
@@ -85,7 +49,7 @@ async def handle_mood(message: types.Message):
         await message.answer("Отлично! Сейчас покажу, что у нас по плану 🔥", reply_markup=training_kb)
 
 @dp.message_handler(lambda message: message.text == "Всё понял, поехали! 🔥")
-async def handle_go_training(message: types.Message):
+async def start_training(message: types.Message):
     await message.answer(
         "Сегодняшняя тренировка (Full Body)\n\n"
         "1. Приседания — https://youtu.be/aclHkVaku9U\n"
@@ -96,16 +60,19 @@ async def handle_go_training(message: types.Message):
         "Поехали! 🏋️"
     )
 
-# Планировщик
+# Планировщик уведомлений
 scheduler.add_job(send_reminder, 'cron', hour=21, minute=0)
-scheduler.start()
 
-# Закрытие aiohttp-сессии при завершении
-async def on_shutdown(dp):
-    logging.info("Выключение бота и закрытие aiohttp-сессии...")
+# Хук на запуск
+async def on_startup(dispatcher):
+    scheduler.start()
+    print("RoosFitCoach запущен! 💪")
+
+# Хук на завершение
+async def on_shutdown(dispatcher):
     await bot.session.close()
+    print("RoosFitCoach завершает работу. Сессия закрыта.")
 
 # Запуск бота
 if __name__ == '__main__':
-    from aiogram import executor
-    executor.start_polling(dp, skip_updates=True, on_shutdown=on_shutdown)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup, on_shutdown=on_shutdown)
