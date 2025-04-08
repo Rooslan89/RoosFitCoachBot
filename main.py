@@ -1,73 +1,98 @@
-
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-import datetime
 import asyncio
+import datetime
+import os
+import sys
+import logging
 
-API_TOKEN = '7966092558:AAEOocrIi0BXVVYQx2h-6IrwZOw7bZTeSZ4'
+# aiogram использует aiohttp, импортируем сессии с отключением SSL
+import aiohttp
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils import executor
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Устанавливаем уровень логирования
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
+
+API_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+if not API_TOKEN or not CHAT_ID:
+    logging.error("Переменные окружения BOT_TOKEN и CHAT_ID не заданы")
+    sys.exit(1)
+
+# Создаем aiohttp-сессию с отключённым SSL
+try:
+    connector = aiohttp.TCPConnector(ssl=False)
+    session = aiohttp.ClientSession(connector=connector)
+except Exception as e:
+    logging.error(f"Ошибка создания aiohttp-сессии: {e}")
+    sys.exit(1)
+
+bot = Bot(token=API_TOKEN, session=session)
 dp = Dispatcher(bot)
+scheduler = AsyncIOScheduler()
 
-# Главное меню
-main_kb = ReplyKeyboardMarkup(resize_keyboard=True)
-main_kb.add(KeyboardButton("🏋 Тренировка"), KeyboardButton("📊 Прогресс"))
-main_kb.add(KeyboardButton("📸 Фото/Вес"), KeyboardButton("🛌 Сон"))
-main_kb.add(KeyboardButton("🍽 Питание"))
+# Клавиатуры
+start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+start_kb.add(KeyboardButton("Начать тренировку"))
 
-# День недели
-def get_today_workout():
-    day = datetime.datetime.today().weekday()
-    workouts = {
-        0: "Тренировка 1 – Ноги + дельты + пресс",
-        1: "Тренировка 2 – Спина + руки",
-        3: "Тренировка 3 – Ноги + ягодицы + дельты",
-        4: "Тренировка 4 – Грудь + руки + кора"
-    }
-    return workouts.get(day, "Сегодня нет тренировки — восстановление 🧘")
+mood_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+mood_kb.add("Отлично 💯", "Нормально 😊")
+mood_kb.add("Так себе 😕", "Плохо 😞")
 
+training_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+training_kb.add("Всё понял, поехали! 🔥")
+
+# Напоминание
+async def send_reminder():
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text="Привет, Roos! Завтра тренировка 💪 Не забудь подготовиться! 🥗😴"
+    )
+
+# Обработка команд
 @dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
-    await message.reply("Привет, я RoosFitCoach 🤖 Готов к тренировке?", reply_markup=main_kb)
+async def handle_start(message: types.Message):
+    await message.reply(
+        "Привет, Roos! Я твой фитнес-бот RoosFitCoach 💪 Готов начать тренировку?",
+        reply_markup=start_kb
+    )
 
-@dp.message_handler(lambda message: message.text == "🏋 Тренировка")
-async def show_workout(message: types.Message):
-    workout = get_today_workout()
-    await message.reply(f"📅 {workout}
+@dp.message_handler(lambda message: message.text == "Начать тренировку")
+async def handle_start_training(message: types.Message):
+    await message.answer("Как ты себя сегодня чувствуешь, Roos?", reply_markup=mood_kb)
 
-Напиши 'подробнее', чтобы увидеть упражнения.")
+@dp.message_handler(lambda message: message.text in ["Отлично 💯", "Нормально 😊", "Так себе 😕", "Плохо 😞"])
+async def handle_mood(message: types.Message):
+    mood = message.text
+    if mood == "Плохо 😞":
+        await message.answer("Понял тебя, давай сегодня отдохнём. Завтра будет лучше! 🧘")
+    elif mood == "Так себе 😕":
+        await message.answer("Хорошо, я подберу адаптированную версию тренировки. 💡", reply_markup=training_kb)
+    else:
+        await message.answer("Отлично! Сейчас покажу, что у нас по плану 🔥", reply_markup=training_kb)
 
-@dp.message_handler(lambda message: message.text.lower() == "подробнее")
-async def send_workout_detail(message: types.Message):
-    await message.reply("Пример упражнений:
-1. Жим ногами
-2. Сгибание ног
-3. Выпады
-(и т.д.)
+@dp.message_handler(lambda message: message.text == "Всё понял, поехали! 🔥")
+async def handle_go_training(message: types.Message):
+    await message.answer(
+        "Сегодняшняя тренировка (Full Body)\n\n"
+        "1. Приседания — https://youtu.be/aclHkVaku9U\n"
+        "2. Жим гантелей сидя — https://youtu.be/qEwKCR5JCog\n"
+        "3. Становая тяга — https://youtu.be/ytGaGIn3SjE\n"
+        "4. Подъём на бицепс — https://youtu.be/ykJmrZ5v0Oo\n"
+        "5. Планка 60 сек — https://youtu.be/pSHjTRCQxIw\n\n"
+        "Поехали! 🏋️"
+    )
 
-📹 Видео скоро будут добавлены.")
+# Планировщик
+scheduler.add_job(send_reminder, 'cron', hour=21, minute=0)
+scheduler.start()
 
-@dp.message_handler(lambda message: message.text == "📸 Фото/Вес")
-async def input_photo_weight(message: types.Message):
-    await message.reply("Пришли мне своё фото или напиши вес (в кг):")
-
-@dp.message_handler(lambda message: message.text == "🛌 Сон")
-async def input_sleep(message: types.Message):
-    await message.reply("Сколько часов ты спал сегодня?")
-
-@dp.message_handler(lambda message: message.text == "📊 Прогресс")
-async def progress(message: types.Message):
-    await message.reply("📈 Отслеживание прогресса будет здесь. Скоро добавим графики и данные.")
-
-@dp.message_handler(lambda message: message.text == "🍽 Питание")
-async def nutrition(message: types.Message):
-    await message.reply("🍎 Сегодняшний совет по питанию:
-– Больше белка на завтрак
-– Не пропускай приём пищи после тренировки")
-
-# Запуск
+# Запуск бота
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    try:
+        executor.start_polling(dp, skip_updates=True)
+    finally:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(session.close())
