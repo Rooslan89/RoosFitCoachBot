@@ -4,6 +4,9 @@ import os
 import sys
 import logging
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Проверка поддержки ssl и безопасный импорт aiohttp
 try:
     import ssl
@@ -17,7 +20,6 @@ except ImportError:
 import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Устанавливаем уровень логирования
@@ -98,10 +100,12 @@ async def handle_go_training(message: types.Message):
 scheduler.add_job(send_reminder, 'cron', hour=21, minute=0)
 scheduler.start()
 
+# Закрытие aiohttp-сессии при завершении
+async def on_shutdown(dp):
+    logging.info("Выключение бота и закрытие aiohttp-сессии...")
+    await bot.session.close()
+
 # Запуск бота
 if __name__ == '__main__':
-    try:
-        executor.start_polling(dp, skip_updates=True)
-    finally:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(session.close())
+    from aiogram import executor
+    executor.start_polling(dp, skip_updates=True, on_shutdown=on_shutdown)
