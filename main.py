@@ -12,6 +12,57 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
+
+# Состояния опроса
+class RegisterState(StatesGroup):
+    gender = State()
+    height = State()
+    weight = State()
+
+# Клавиатура для пола
+gender_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+gender_kb.add("Мужской", "Женский")
+
+@dp.message_handler(commands=['start'])
+async def start(message: types.Message):
+    await message.answer("Привет, Roos! Я твой фитнес-бот RoosFitCoach 💪\n\nПеред началом тренировок, давай немного познакомимся.")
+    await message.answer("Какой у тебя пол?", reply_markup=gender_kb)
+    await RegisterState.gender.set()
+
+@dp.message_handler(state=RegisterState.gender)
+async def process_gender(message: types.Message, state: FSMContext):
+    await state.update_data(gender=message.text)
+    await message.answer("Отлично! Теперь укажи свой рост (в см):", reply_markup=types.ReplyKeyboardRemove())
+    await RegisterState.height.set()
+
+@dp.message_handler(state=RegisterState.height)
+async def process_height(message: types.Message, state: FSMContext):
+    await state.update_data(height=message.text)
+    await message.answer("Супер! А теперь укажи свой вес (в кг):")
+    await RegisterState.weight.set()
+
+@dp.message_handler(state=RegisterState.weight)
+async def process_weight(message: types.Message, state: FSMContext):
+    await state.update_data(weight=message.text)
+    data = await state.get_data()
+
+    await message.answer(
+        f"Отлично, Roos!\n"
+        f"Пол: {data['gender']}\n"
+        f"Рост: {data['height']} см\n"
+        f"Вес: {data['weight']} кг\n\n"
+        "Теперь давай оценим твоё самочувствие перед тренировкой 💬",
+        reply_markup=mood_kb
+    )
+    await state.finish()
+
+
 # Клавиатуры
 start_kb = ReplyKeyboardMarkup(resize_keyboard=True)
 start_kb.add(KeyboardButton("Начать тренировку"))
